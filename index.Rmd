@@ -1,0 +1,98 @@
+---
+title: "Practical Machine Learning - Weight Lifting Exercises"
+output: html_document
+---
+
+```{r setup, echo=FALSE}
+options(digits = 2)
+```
+
+
+Reading in the dataset
+----------------------
+
+First, we are loading the *caret* and *randomForest* libraries.
+
+```{r}
+library(caret)
+library(randomForest)
+```
+
+We then read in the dataset and remove features (like usernames or timestamps) that are obviously irrelevant for a classification.
+
+```{r}
+pml <- read.csv('pml-training.csv')
+pml <- subset(pml, select=-c(X,user_name,cvtd_timestamp,raw_timestamp_part_1,raw_timestamp_part_2,new_window,num_window))
+```
+
+There are also more parameters that are incomplete, and/or which we deem to be irrelevant.
+
+```{r}
+cn <- colnames(pml)
+unsel_roll <- !grepl("_roll_", cn)
+unsel_yaw <- !grepl("_yaw_", cn)
+unsel_pitch <- !grepl("_pitch_", cn)
+unsel_max <- !grepl("^max_", cn)
+unsel_var <- !grepl("^var_", cn)
+unsel_kur <- !grepl("^kurtosis_", cn)
+
+pml2 <- subset(pml, select=cn[unsel_roll & unsel_yaw & unsel_pitch & unsel_max & unsel_var & unsel_kur])
+```
+
+
+Splitting out Training and Test Datasets
+----------------------------------------
+
+We use a classic 60/40 split for the training and test set.
+
+```{r}
+inTrain <- createDataPartition(y=pml2$classe, p=0.6, list=FALSE)
+training <- pml2[inTrain,]
+testing <- pml2[-inTrain,]
+```
+
+
+Training and Predicting
+-----------------------
+
+We use a random forest for the classification.
+
+```{r}
+ntree <- 300
+fit <- randomForest(classe~., data=training, ntree=ntree)
+```
+
+Let us quantify the errors. First, the out-of-bag (OOB) error from the random tree:
+
+```{r}
+oob.error.rate <- fit$err.rate[,1]*100
+qplot(1:ntree, oob.error.rate, log='y', xlab='ntree', ylab='OOB error rate (%)')
+```
+
+As you see, the cutoff at `r ntree` trees was chosen because we find convergence for the OOB error. This results in `r oob.error.rate[ntree]`% of misclassified measurements when using `r ntree` trees. Using random forests, there is no need for cross-validation, since the OOB error is already estimated by further dividing training set into several subsets.
+
+Just for completeness, we will compare that to the out-of-sample error by using the predictor on the test set:
+
+```{r}
+correct <- sum(testing$classe == predict(fit, newdata=testing))
+nTesting <- length(testing$classe)
+oos.error.rate <- (nTesting-correct) / nTesting * 100
+```
+
+This gives us `r oos.error.rate`% of misclassified measurements as out-of-sample error, very similar to the OOB error.
+
+```{r,echo=FALSE}
+
+pml2 <- read.csv('pml-testing.csv')
+answers <- predict(fit, newdata=pml2)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
